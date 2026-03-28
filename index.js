@@ -9,7 +9,7 @@ const LEADS_URL = 'https://seller.indiamart.com/bltxn/?pref=relevant';
 
 (async () => {
   const browser = await puppeteer.launch({
-    headless: false,
+    headless: true,
     defaultViewport: null,
     args: [
       '--start-maximized',
