@@ -5,7 +5,7 @@ const puppeteer = require('puppeteer');
 
 const INDIAMART_USERNAME = '8122378860';
 const INDIAMART_PASSWORD = 'Ragav?123';
-const LEADS_URL = 'https://seller.indiamart.com/bltxn/?pref=relevant';
+const LEADS_URL = 'http://seller.indiamart.com/bltxn/?pref=relevant';
 
 (async () => {
   const browser = await puppeteer.launch({
@@ -20,7 +20,7 @@ const LEADS_URL = 'https://seller.indiamart.com/bltxn/?pref=relevant';
   const page = await browser.newPage();
 
   // --- LOGIN ---
-  await page.goto('https://seller.indiamart.com/', { waitUntil: 'networkidle2' });
+  await page.goto('http://seller.indiamart.com/', { waitUntil: 'networkidle2' });
   await page.waitForTimeout(2000);
 
   // Click login button if needed
