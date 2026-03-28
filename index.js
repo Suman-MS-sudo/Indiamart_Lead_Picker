@@ -8,7 +8,16 @@ const INDIAMART_PASSWORD = 'Ragav?123';
 const LEADS_URL = 'https://seller.indiamart.com/bltxn/?pref=relevant';
 
 (async () => {
-  const browser = await puppeteer.launch({ headless: false, defaultViewport: null, args: ['--start-maximized'] });
+  const browser = await puppeteer.launch({
+    headless: false,
+    defaultViewport: null,
+    args: [
+      '--start-maximized',
+      '--remote-debugging-port=9222',
+      '--no-sandbox',
+      '--disable-setuid-sandbox'
+    ]
+  });
   const page = await browser.newPage();
 
   // --- LOGIN ---
