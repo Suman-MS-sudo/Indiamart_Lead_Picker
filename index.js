@@ -12,6 +12,7 @@ const LEADS_URL = 'http://seller.indiamart.com/bltxn/?pref=relevant';
     headless: true,
     defaultViewport: null,
     args: [
+      '--remote-debugging-address=0.0.0.0',
       '--remote-debugging-port=9222',
       '--no-sandbox',
       '--disable-setuid-sandbox'
