@@ -4,31 +4,45 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 
+
 let latestOTP = null;
+let allMessages = [];
 
 const app = express();
 app.use(bodyParser.json());
 
 // Endpoint to receive OTP
+
 app.post('/otp', (req, res) => {
   const { otp } = req.body;
   if (otp) {
     latestOTP = otp;
+    allMessages.push({ otp, receivedAt: new Date().toISOString() });
     console.log('Received OTP:', otp);
     res.status(200).send('OTP received');
   } else {
+    allMessages.push({ error: 'No OTP found in request', receivedAt: new Date().toISOString(), body: req.body });
     res.status(400).send('No OTP found in request');
   }
 });
 
 // Endpoint to get latest OTP
+
 app.get('/otp', (req, res) => {
   res.json({ otp: latestOTP });
 });
 
+// Endpoint to get all received messages
+app.get('/messages', (req, res) => {
+  res.json({ messages: allMessages });
+});
+
+
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`OTP webhook server running on port ${PORT}`);
+  console.log('GET /otp returns the latest OTP.');
+  console.log('GET /messages returns all received OTPs/messages.');
 });
 
 module.exports = { getLatestOTP: () => latestOTP };
