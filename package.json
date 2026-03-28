@@ -1,0 +1,14 @@
+{
+  "name": "indiamart-lead-picker",
+  "version": "1.0.0",
+  "description": "Automates IndiaMART lead picking using Puppeteer.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "puppeteer": "^21.0.0"
+  }
+}
