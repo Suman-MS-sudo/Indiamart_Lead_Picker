@@ -61,13 +61,20 @@ async function doLogin(page) {
       } catch (e) {}
     }
     console.log('OTP auto-filled:', otp);
+    // --- Submit OTP ---
+    await page.waitForTimeout(500);
+    await page.keyboard.press('Enter');
+    // Wait for navigation after OTP submit
+    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {});
   } else {
     console.log('OTP not received in 60 seconds. Please enter manually.');
     process.stdin.resume();
     await new Promise(resolve => process.stdin.once('data', resolve));
   }
-  // Wait for leads page to load after login
-  await page.goto(LEADS_URL, { waitUntil: 'networkidle2' });
+  // Only go to leads page if not already there
+  if (!page.url().includes('bltxn')) {
+    await page.goto(LEADS_URL, { waitUntil: 'networkidle2' });
+  }
 }
 
 // --- MAIN SCRIPT ---
