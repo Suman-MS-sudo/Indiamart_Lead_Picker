@@ -138,22 +138,34 @@ async function main() {
       let newLeads = [];
       for (const card of leadCards) {
         const text = await card.evaluate(el => el.innerText);
-        const leadId = text.split('\n')[0];
-        // Only consider leads that match keywords
+        // Use the full card text as a unique identifier
+        const cardKey = text.trim();
+        // Only consider leads that match keywords (case-insensitive)
         const isMatch = KEYWORDS.some(keyword => text.toLowerCase().includes(keyword.toLowerCase()));
         if (isMatch) {
-          activeLeads.push(leadId);
-          if (!processedLeads.has(leadId)) {
+          activeLeads.push(cardKey);
+          if (!processedLeads.has(cardKey)) {
             // Pick only new, matching leads
-            const contactBtn = await card.$('.BuyLdC_btn');
-            if (contactBtn && await contactBtn.boundingBox() !== null) {
+            let contactBtn = await card.$('.BuyLdC_btn');
+            if (!contactBtn) {
+              // Fallback to XPath if class selector fails
+              const btns = await card.$x(".//button[contains(text(),'Contact Buyer Now')]");
+              if (btns.length > 0) contactBtn = btns[0];
+            }
+            if (contactBtn) {
+              // Scroll button into view before clicking
+              await card.evaluate(btn => btn.scrollIntoView({behavior: 'smooth', block: 'center'}), contactBtn);
+              await page.waitForTimeout(200); // Small delay for UI
               await contactBtn.click();
               leadCount++;
-              processedLeads.add(leadId);
-              newLeads.push(leadId);
-              console.log('[NEW LEAD PICKED]', leadId);
+              processedLeads.add(cardKey);
+              newLeads.push(cardKey);
+              console.log('[NEW LEAD PICKED]', cardKey);
               found = true;
-              // Do not break; pick all new matching leads in this cycle
+            } else {
+              // Log card text for debugging
+              console.log(`[WARN] 'Contact Buyer Now' button not found for card:`);
+              console.log(text);
             }
           }
         }
