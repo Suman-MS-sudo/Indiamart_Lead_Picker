@@ -3,29 +3,25 @@
 
 const puppeteer = require('puppeteer');
 
+
+// --- CONFIGURABLE SETTINGS ---
 const INDIAMART_USERNAME = '8122378860';
 const INDIAMART_PASSWORD = 'Ragav?123';
 const LEADS_URL = 'https://seller.indiamart.com/bltxn/?pref=relevant';
+const REFRESH_INTERVAL_MS = 30000; // 30 seconds (change as needed)
+const KEYWORDS = [
+  "Sanitary Vending Machine",
+  "Sanitary Vending incinerator",
+  "Sanitary Napkin Disposal Incinerator",
+  "Sanitary Napkin Vending Machine",
+  "Sanitary Pad Destroyer Machine",
+  "Sanitary Napkin Disposal Incinerator",
+  "Napkin Vending Machine"
+];
 
-(async () => {
-  const browser = await puppeteer.launch({
-    headless: false, // Enable UI
-    defaultViewport: null,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox'
-    ]
-  });
-  // Forward browser console messages to Node.js console
-  const page = await browser.newPage();
-  page.on('console', msg => console.log('BROWSER LOG:', msg.text()));
-
-
-
-  // --- LOGIN ---
-  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+// --- LOGIN/OTP HANDLER ---
+async function doLogin(page) {
   await page.goto('https://seller.indiamart.com/', { waitUntil: 'networkidle2', timeout: 60000 });
-
   // Click login button if needed
   try {
     const loginBtn = await page.$x("//a[contains(text(),'Login')]");
@@ -33,25 +29,16 @@ const LEADS_URL = 'https://seller.indiamart.com/bltxn/?pref=relevant';
       await loginBtn[0].click();
     }
   } catch (e) {}
-
-  // Enter mobile number and click Login
   await page.waitForSelector('#mobNo', { timeout: 10000 });
   await page.type('#mobNo', INDIAMART_USERNAME);
   await page.waitForSelector('.login_btn', { timeout: 10000 });
   await page.click('.login_btn');
-
-  // Wait for OTP/password page to load
   await page.waitForSelector('#reqOtpMobBtn, #usr_password', { timeout: 15000 });
-
-  // Click 'Request OTP on Mobile' if present
   const reqOtpBtn = await page.$('#reqOtpMobBtn');
   if (reqOtpBtn) {
     await reqOtpBtn.click();
   }
-
-  // Wait for OTP input fields to appear (first digit)
   await page.waitForSelector('#first', { timeout: 15000 }).catch(() => {});
-
   // --- HANDLE OTP (auto-fill from webhook) ---
   const axios = require('axios');
   let otp = null;
@@ -67,9 +54,131 @@ const LEADS_URL = 'https://seller.indiamart.com/bltxn/?pref=relevant';
     await new Promise(r => setTimeout(r, 1000));
   }
   if (otp) {
-    // Try to fill OTP fields (assuming 4-6 digit OTP)
     for (let i = 0; i < otp.length && i < 6; i++) {
       const fieldId = ['#first', '#second', '#third', '#fourth_num', '#fifth', '#sixth'][i];
+      try {
+        await page.type(fieldId, otp[i]);
+      } catch (e) {}
+    }
+    console.log('OTP auto-filled:', otp);
+  } else {
+    console.log('OTP not received in 60 seconds. Please enter manually.');
+    process.stdin.resume();
+    await new Promise(resolve => process.stdin.once('data', resolve));
+  }
+  // Wait for leads page to load after login
+  await page.goto(LEADS_URL, { waitUntil: 'networkidle2' });
+}
+
+(async () => {
+  const browser = await puppeteer.launch({
+    headless: false, // Enable UI
+
+    (async () => {
+      const browser = await puppeteer.launch({
+        headless: false, // Enable UI
+        defaultViewport: null,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox'
+        ]
+      });
+      const page = await browser.newPage();
+      page.on('console', msg => console.log('BROWSER LOG:', msg.text()));
+      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
+      let leadCount = 0;
+      const processedLeads = new Set();
+
+      // Helper to check if logged in (looks for login form)
+      async function isLoggedOut() {
+        try {
+          // If login form or login button is present, assume logged out
+          const loginBtn = await page.$x("//a[contains(text(),'Login')]");
+          const mobNo = await page.$('#mobNo');
+          return (loginBtn.length > 0 && mobNo) || (await page.url()).includes('login');
+        } catch (e) { return false; }
+      }
+
+      // Initial login
+      await doLogin(page);
+
+      while (true) {
+        // Check if logged out
+        if (await isLoggedOut()) {
+          console.log('Detected logout. Re-logging in...');
+          await doLogin(page);
+        }
+        // Try to access the leads page
+        let leadsPageOk = true;
+        try {
+          const resp = await page.goto(LEADS_URL, { waitUntil: 'networkidle2' });
+          const currentUrl = page.url();
+          if (!resp || !resp.ok() || currentUrl.includes('login')) {
+            console.log('Could not access leads page, redirecting to login...');
+            await doLogin(page);
+            leadsPageOk = false;
+          }
+        } catch (e) {
+          console.log('Error loading leads page, redirecting to login...', e);
+          await doLogin(page);
+          leadsPageOk = false;
+        }
+        if (!leadsPageOk) {
+          await new Promise(r => setTimeout(r, 2000));
+          continue;
+        }
+        try {
+          const leadCards = await page.$$('.BuyLdC_wrapCont');
+          let found = false;
+          let activeLeads = [];
+          let newLeads = [];
+          for (const card of leadCards) {
+            const text = await card.evaluate(el => el.innerText);
+            const leadId = text.split('\n')[0];
+            // Only consider leads that match keywords
+            const isMatch = KEYWORDS.some(keyword => text.toLowerCase().includes(keyword.toLowerCase()));
+            if (isMatch) {
+              activeLeads.push(leadId);
+              if (!processedLeads.has(leadId)) {
+                // Pick only new, matching leads
+                const contactBtn = await card.$x(".//button[contains(text(),'Contact Buyer Now')]");
+                if (contactBtn.length > 0 && await contactBtn[0].boundingBox() !== null) {
+                  await contactBtn[0].click();
+                  leadCount++;
+                  processedLeads.add(leadId);
+                  newLeads.push(leadId);
+                  console.log('[NEW LEAD PICKED]', leadId);
+                  found = true;
+                  // Do not break; pick all new matching leads in this cycle
+                }
+              }
+            }
+          }
+          // Print all active leads and highlight new ones
+          if (activeLeads.length > 0) {
+            console.log('Active matching leads:');
+            activeLeads.forEach(l => {
+              if (newLeads.includes(l)) {
+                console.log('  [NEW]', l);
+              } else {
+                console.log('      ', l);
+              }
+            });
+          } else {
+            console.log('No active matching leads at', new Date().toLocaleTimeString());
+          }
+          if (newLeads.length === 0) {
+            console.log('No new matching leads found at', new Date().toLocaleTimeString());
+          }
+        } catch (e) {
+          console.log('Error:', e);
+        }
+        await new Promise(r => setTimeout(r, REFRESH_INTERVAL_MS));
+      }
+
+      // await browser.close(); // Uncomment to close browser after script ends
+    })();
       try {
         await page.type(fieldId, otp[i]);
       } catch (e) {}
@@ -97,22 +206,38 @@ const LEADS_URL = 'https://seller.indiamart.com/bltxn/?pref=relevant';
 
   // --- MONITOR AND PICK LEADS ---
   let leadCount = 0;
+  const processedLeads = new Set();
   while (true) {
     await page.reload({ waitUntil: 'networkidle2' });
     try {
-      const pickButtons = await page.$x("//button[contains(text(),'Pick Lead')]");
-      for (const btn of pickButtons) {
-        const visible = await btn.boundingBox() !== null;
-        if (visible) {
-          await btn.click();
-          leadCount++;
-          console.log('Picked a lead! Total:', leadCount);
-          break;
+      // Find all lead containers
+      const leadCards = await page.$$('.BuyLdC_wrapCont');
+      let found = false;
+      for (const card of leadCards) {
+        // Use a unique identifier for each lead (e.g., the first line of text)
+        const text = await card.evaluate(el => el.innerText);
+        const leadId = text.split('\n')[0];
+        if (processedLeads.has(leadId)) continue;
+        if (KEYWORDS.some(keyword => text.toLowerCase().includes(keyword.toLowerCase()))) {
+          // Try to find and click the 'Contact Buyer Now' button inside this card
+          const contactBtn = await card.$x(".//button[contains(text(),'Contact Buyer Now')]");
+          if (contactBtn.length > 0 && await contactBtn[0].boundingBox() !== null) {
+            await contactBtn[0].click();
+            leadCount++;
+            processedLeads.add(leadId);
+            console.log('Contacted buyer! Total:', leadCount, '| Matched:', leadId);
+            found = true;
+            break;
+          }
         }
+      }
+      if (!found) {
+        console.log('No new matching leads found at', new Date().toLocaleTimeString());
       }
     } catch (e) {
       console.log('Error:', e);
     }
+    await new Promise(r => setTimeout(r, REFRESH_INTERVAL_MS));
   }
 
   // await browser.close(); // Uncomment to close browser after script ends
