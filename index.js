@@ -145,9 +145,9 @@ async function main() {
           activeLeads.push(leadId);
           if (!processedLeads.has(leadId)) {
             // Pick only new, matching leads
-            const contactBtn = await card.$x(".//button[contains(text(),'Contact Buyer Now')]");
-            if (contactBtn.length > 0 && await contactBtn[0].boundingBox() !== null) {
-              await contactBtn[0].click();
+            const contactBtn = await card.$('.BuyLdC_btn');
+            if (contactBtn && await contactBtn.boundingBox() !== null) {
+              await contactBtn.click();
               leadCount++;
               processedLeads.add(leadId);
               newLeads.push(leadId);
