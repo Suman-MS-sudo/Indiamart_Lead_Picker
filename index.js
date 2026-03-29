@@ -70,5 +70,110 @@ async function doLogin(page) {
   await page.goto(LEADS_URL, { waitUntil: 'networkidle2' });
 }
 
-// ...existing code...
-// ...existing code...
+// --- MAIN SCRIPT ---
+async function main() {
+  const browser = await puppeteer.launch({
+    headless: false,
+    defaultViewport: null,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox'
+    ]
+  });
+  const page = await browser.newPage();
+  page.on('console', msg => console.log('BROWSER LOG:', msg.text()));
+  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
+  let leadCount = 0;
+  const processedLeads = new Set();
+
+  // Helper to check if logged in (looks for login form)
+  async function isLoggedOut() {
+    try {
+      const loginBtn = await page.$x("//a[contains(text(),'Login')]");
+      const mobNo = await page.$('#mobNo');
+      return (loginBtn.length > 0 && mobNo) || (await page.url()).includes('login');
+    } catch (e) { return false; }
+  }
+
+  // Initial login
+  await doLogin(page);
+
+  while (true) {
+    // Check if logged out
+    if (await isLoggedOut()) {
+      console.log('Detected logout. Re-logging in...');
+      await doLogin(page);
+    }
+    // Try to access the leads page
+    let leadsPageOk = true;
+    try {
+      const resp = await page.goto(LEADS_URL, { waitUntil: 'networkidle2' });
+      const currentUrl = page.url();
+      if (!resp || !resp.ok() || currentUrl.includes('login')) {
+        console.log('Could not access leads page, redirecting to login...');
+        await doLogin(page);
+        leadsPageOk = false;
+      }
+    } catch (e) {
+      console.log('Error loading leads page, redirecting to login...', e);
+      await doLogin(page);
+      leadsPageOk = false;
+    }
+    if (!leadsPageOk) {
+      await new Promise(r => setTimeout(r, 2000));
+      continue;
+    }
+    try {
+      const leadCards = await page.$$('.BuyLdC_wrapCont');
+      let found = false;
+      let activeLeads = [];
+      let newLeads = [];
+      for (const card of leadCards) {
+        const text = await card.evaluate(el => el.innerText);
+        const leadId = text.split('\n')[0];
+        // Only consider leads that match keywords
+        const isMatch = KEYWORDS.some(keyword => text.toLowerCase().includes(keyword.toLowerCase()));
+        if (isMatch) {
+          activeLeads.push(leadId);
+          if (!processedLeads.has(leadId)) {
+            // Pick only new, matching leads
+            const contactBtn = await card.$x(".//button[contains(text(),'Contact Buyer Now')]");
+            if (contactBtn.length > 0 && await contactBtn[0].boundingBox() !== null) {
+              await contactBtn[0].click();
+              leadCount++;
+              processedLeads.add(leadId);
+              newLeads.push(leadId);
+              console.log('[NEW LEAD PICKED]', leadId);
+              found = true;
+              // Do not break; pick all new matching leads in this cycle
+            }
+          }
+        }
+      }
+      // Print all active leads and highlight new ones
+      if (activeLeads.length > 0) {
+        console.log('Active matching leads:');
+        activeLeads.forEach(l => {
+          if (newLeads.includes(l)) {
+            console.log('  [NEW]', l);
+          } else {
+            console.log('      ', l);
+          }
+        });
+      } else {
+        console.log('No active matching leads at', new Date().toLocaleTimeString());
+      }
+      if (newLeads.length === 0) {
+        console.log('No new matching leads found at', new Date().toLocaleTimeString());
+      }
+    } catch (e) {
+      console.log('Error:', e);
+    }
+    await new Promise(r => setTimeout(r, REFRESH_INTERVAL_MS));
+  }
+
+  // await browser.close(); // Uncomment to close browser after script ends
+}
+
+main();
