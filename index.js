@@ -116,11 +116,20 @@ async function main() {
     let leadsPageOk = true;
     try {
       const resp = await page.goto(LEADS_URL, { waitUntil: 'networkidle2' });
-      const currentUrl = page.url();
+      let currentUrl = page.url();
       if (!resp || !resp.ok() || currentUrl.includes('login')) {
         console.log('Could not access leads page, redirecting to login...');
         await doLogin(page);
         leadsPageOk = false;
+        currentUrl = page.url();
+      }
+      // If not on leads page or login page, force redirect to leads page
+      if (
+        !currentUrl.includes('bltxn') &&
+        !currentUrl.includes('login')
+      ) {
+        console.log('Not on leads or login page, navigating back to leads page...');
+        await page.goto(LEADS_URL, { waitUntil: 'networkidle2' });
       }
     } catch (e) {
       console.log('Error loading leads page, redirecting to login...', e);
